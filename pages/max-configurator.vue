@@ -24,5 +24,27 @@
     </div>
   </section>
 </template>
+<script setup lang="ts">
+  import { watch, ref, onMounted } from "vue";
+  import { useRoute } from "vue-router";
+
+  const route = useRoute();
+  const data = ref(null);
+
+  watch(
+    () => route.path,
+    async () => {
+      data.value = await useAsyncGql("getCompositeProduct", {
+        slug: "211",
+      });
+    }
+  );
+
+  onMounted(async () => {
+    data.value = await useAsyncGql("getCompositeProduct", {
+      slug: "211",
+    });
+  });
+</script>
 
 <style scoped></style>

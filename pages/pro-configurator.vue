@@ -20,6 +20,8 @@
           to="/master-configurator"
           >Master Board</NuxtLink
         >
+
+        <h1>{{ data?.value?.name }}</h1>
       </div>
     </div>
   </section>
