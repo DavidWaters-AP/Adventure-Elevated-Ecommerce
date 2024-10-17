@@ -1,16 +1,20 @@
 <script lang="ts" setup>
 import { StockStatusEnum, ProductTypesEnum, type AddToCartInput } from '#woo';
+import { watch, onMounted } from 'vue';
 
 const route = useRoute();
 const { storeSettings } = useAppConfig();
 const { arraysEqual, formatArray, checkForVariationTypeOfAny } = useHelpers();
 const { addToCart, isUpdatingCart } = useCart();
 const { t } = useI18n();
-const slug = route.params.slug as string;
+const slug = ref(route.params.slug as string); // Make slug reactive
 
-const { data } = await useAsyncGql('getProduct', { slug });
+const { data } = await useAsyncGql('getProduct', { slug: slug.value });
 if (!data.value?.product) {
-  throw showError({ statusCode: 404, statusMessage: t('messages.shop.productNotFound') });
+  throw showError({
+    statusCode: 404,
+    statusMessage: t('messages.shop.productNotFound'),
+  });
 }
 
 const product = ref<Product>(data?.value?.product);
@@ -24,7 +28,12 @@ const isVariableProduct = computed<boolean>(() => product.value?.type === Produc
 const isExternalProduct = computed<boolean>(() => product.value?.type === ProductTypesEnum.EXTERNAL);
 
 const type = computed(() => activeVariation.value || product.value);
-const selectProductInput = computed<any>(() => ({ productId: type.value?.databaseId, quantity: quantity.value })) as ComputedRef<AddToCartInput>;
+const selectProductInput = computed<any>(() => ({
+  productId: type.value?.databaseId,
+  quantity: quantity.value,
+  variationId: activeVariation.value?.databaseId ?? null,
+  variation: activeVariation.value ? attrValues.value : null,
+})) as ComputedRef<AddToCartInput>;
 
 const mergeLiveStockStatus = (payload: Product): void => {
   product.value.stockStatus = payload.stockStatus ?? product.value?.stockStatus;
@@ -36,25 +45,64 @@ const mergeLiveStockStatus = (payload: Product): void => {
   });
 };
 
+const initializeActiveVariation = () => {
+  if (isVariableProduct.value && product.value.variations.nodes.length > 0) {
+    // Find the variation that matches the default attributes
+    const defaultVariation = product.value.variations.nodes.find((variation) => {
+      const defaultAttributes = product.value.defaultAttributes?.nodes || [];
+      return defaultAttributes.every((attr) => variation.attributes.nodes.some((va) => va.name === attr.name && va.value === attr.value));
+    });
+
+    // Set the active variation, fallback to the first variation if no default is found
+    activeVariation.value = defaultVariation || product.value.variations.nodes[0];
+
+    // Update selectProductInput to match the active variation
+    if (activeVariation.value) {
+      selectProductInput.value.variationId = activeVariation.value.databaseId;
+      selectProductInput.value.variation = activeVariation.value.attributes.nodes.map((attr) => ({
+        attributeName: attr.name,
+        attributeValue: attr.value,
+      }));
+    }
+  }
+};
+
 onMounted(async () => {
   try {
-    const { product } = await GqlGetStockStatus({ slug });
+    const { product } = await GqlGetStockStatus({ slug: slug.value });
     if (product) mergeLiveStockStatus(product as Product);
   } catch (error: any) {
     const errorMessage = error?.gqlErrors?.[0].message;
     if (errorMessage) console.error(errorMessage);
   }
+  initializeActiveVariation(); // Initialize the active variation when the component mounts
 });
+
+watch(
+  route,
+  async (newRoute) => {
+    slug.value = newRoute.params.slug as string;
+    const { data } = await useAsyncGql('getProduct', { slug: slug.value });
+    product.value = data?.value?.product;
+    activeVariation.value = null; // Reset active variation
+    variation.value = []; // Clear selected variations
+    if (product.value) {
+      initializeActiveVariation(); // Reinitialize when navigating to a new product
+    }
+  },
+  { immediate: true },
+);
 
 const updateSelectedVariations = (variations: VariationAttribute[]): void => {
   if (!product.value.variations) return;
 
-  attrValues.value = variations.map((el) => ({ attributeName: el.name, attributeValue: el.value }));
+  attrValues.value = variations.map((el) => ({
+    attributeName: el.name,
+    attributeValue: el.value,
+  }));
   const clonedVariations = JSON.parse(JSON.stringify(variations));
   const getActiveVariation = product.value.variations?.nodes.filter((variation: any) => {
-    // If there is any variation of type ANY set the value to ''
     if (variation.attributes) {
-      // Set the value of the variation of type ANY to ''
       indexOfTypeAny.value.forEach((index) => (clonedVariations[index].value = ''));
 
       return arraysEqual(formatArray(variation.attributes.nodes), formatArray(clonedVariations));
@@ -71,6 +119,7 @@ const stockStatus = computed(() => {
   if (isVariableProduct.value) return activeVariation.value?.stockStatus || StockStatusEnum.OUT_OF_STOCK;
   return type.value?.stockStatus || StockStatusEnum.OUT_OF_STOCK;
 });
+
 const disabledAddToCart = computed(() => {
   if (isSimpleProduct.value) return !type.value || stockStatus.value === StockStatusEnum.OUT_OF_STOCK || isUpdatingCart.value;
   return !type.value || stockStatus.value === StockStatusEnum.OUT_OF_STOCK || !activeVariation.value || isUpdatingCart.value;
@@ -78,7 +127,7 @@ const disabledAddToCart = computed(() => {
 </script>
 
 <template>
-  <main class="container relative py-6 xl:max-w-7xl">
+  <main class="container relative py-6">
     <div v-if="product">
       <SEOHead :info="product" />
       <Breadcrumb :product class="mb-6" v-if="storeSettings.showBreadcrumbOnSingleProduct" />
@@ -110,9 +159,9 @@ const disabledAddToCart = computed(() => {
               <span class="text-gray-400">{{ $t('messages.shop.availability') }}: </span>
               <StockStatus :stockStatus @updated="mergeLiveStockStatus" />
             </div>
-            <div class="flex items-center gap-2" v-if="storeSettings.showSKU && product.sku">
+            <div class="flex items-center gap-2" v-if="storeSettings.showSKU && type.sku">
               <span class="text-gray-400">{{ $t('messages.shop.sku') }}: </span>
-              <span>{{ product.sku || 'N/A' }}</span>
+              <span>{{ type.sku || 'N/A' }}</span>
             </div>
           </div>
 
@@ -177,7 +226,9 @@ const disabledAddToCart = computed(() => {
         <ProductTabs :product />
       </div>
       <div class="my-32" v-if="product.related && storeSettings.showRelatedProducts">
-        <div class="mb-4 text-xl font-semibold">{{ $t('messages.shop.youMayLike') }}</div>
+        <div class="mb-4 text-xl font-semibold">
+          {{ $t('messages.shop.youMayLike') }}
+        </div>
         <ProductRow :products="product.related.nodes" class="grid-cols-2 md:grid-cols-4 lg:grid-cols-5" />
       </div>
     </div>
