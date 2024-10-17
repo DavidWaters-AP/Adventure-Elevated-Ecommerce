@@ -1,0 +1,46 @@
+query getCompositeProduct($slug: ID!) {
+  product(id: $slug, idType: DATABASE_ID) {
+    id
+    ... on CompositeProduct {
+      id
+      name
+      components {
+        title
+        description
+        id
+        queryOptions {
+          id
+          attributes {
+            nodes {
+              name
+              options
+              ... on LocalProductAttribute {
+                id
+                name
+                options
+                label
+              }
+            }
+          }
+          ... on VariableProduct {
+            id
+            name
+            onSale
+            price
+            regularPrice
+            variations {
+              nodes {
+                id
+                name
+                price
+                image {
+                  sourceUrl
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

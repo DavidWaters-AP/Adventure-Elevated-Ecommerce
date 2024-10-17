@@ -199,4 +199,9 @@ img.skeleton {
   background-image: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
   background-size: 200% 100%;
 }
+
+.button-active {
+  @apply bg-slate-500;
+  @apply text-white;
+}
 </style>
