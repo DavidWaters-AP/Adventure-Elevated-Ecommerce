@@ -1,41 +1,68 @@
-query getCompositeProduct($slug: ID!) {
-  product(id: $slug, idType: DATABASE_ID) {
+query getCompositeProduct($id: ID!) {
+  product(id: $id, idType: DATABASE_ID) {
     id
     ... on CompositeProduct {
       id
+      databaseId
       name
+      stockStatus
+      averageRating
+      reviewCount
+      sku
+      description
+      shortDescription
+      image {
+        sourceUrl
+      }
+      galleryImages {
+        nodes {
+          sourceUrl
+        }
+      }
+      productCategories {
+        nodes {
+          name
+          slug
+        }
+      }
       components {
+        id
         title
         description
-        id
         queryOptions {
           id
+          databaseId
+          type
+          name
           attributes {
             nodes {
+              id
               name
+              label
               options
-              ... on LocalProductAttribute {
-                id
-                name
-                options
-                label
-              }
             }
           }
           ... on VariableProduct {
             id
             name
-            onSale
             price
             regularPrice
+            salePrice
             variations {
               nodes {
                 id
-                name
-                price
-                image {
-                  sourceUrl
+                attributes {
+                  nodes {
+                    name
+                    value
+                  }
                 }
+                price
+                salePrice
+                regularPrice
+                sku
+                stockQuantity
+                stockStatus
               }
             }
           }

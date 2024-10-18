@@ -20,31 +20,29 @@
           to="/master-configurator"
           >Master Board</NuxtLink
         >
+
+        <h1>{{ data.product.name }}</h1>
+
+        <h3>{{ data.product.components[0].title }}</h3>
+        <h3>
+          {{
+            data.product.components[0].queryOptions[0].variations.nodes[0].name
+          }}
+        </h3>
       </div>
     </div>
   </section>
 </template>
+
 <script setup lang="ts">
-  import { watch, ref, onMounted } from "vue";
-  import { useRoute } from "vue-router";
-
-  const route = useRoute();
-  const data = ref(null);
-
-  watch(
-    () => route.path,
-    async () => {
-      data.value = await useAsyncGql("getCompositeProduct", {
-        slug: "212",
-      });
-    }
-  );
-
-  onMounted(async () => {
-    data.value = await useAsyncGql("getCompositeProduct", {
-      slug: "212",
-    });
+  const { data } = await useAsyncGql("getCompositeProduct", {
+    slug: "212",
   });
 </script>
 
-<style scoped></style>
+<style scoped>
+  .button-active {
+    @apply bg-slate-500;
+    @apply text-white;
+  }
+</style>

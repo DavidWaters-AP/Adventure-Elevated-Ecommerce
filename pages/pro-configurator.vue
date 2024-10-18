@@ -1,41 +1,24 @@
-<template>
-  <section>
-    <div class="container px-4 py-32">
-      <div class="flex flex-row gap-8">
-        <NuxtLink
-          class="p-6 border border-gray-900 rounded-md bg-white bg-opacity-55"
-          exactActiveClass="button-active"
-          to="/pro-configurator"
-          >Pro Board</NuxtLink
-        >
-        <NuxtLink
-          class="p-6 border border-gray-900 rounded-md bg-white bg-opacity-55"
-          exactActiveClass="button-active"
-          to="/max-configurator"
-          >Max Board</NuxtLink
-        >
-        <NuxtLink
-          class="p-6 border border-gray-900 rounded-md bg-white bg-opacity-55"
-          exactActiveClass="button-active"
-          to="/master-configurator"
-          >Master Board</NuxtLink
-        >
+<script lang="ts" setup>
+  import { StockStatusEnum, type AddToCartInput } from "#woo";
 
-        <h1>{{ data?.value?.name }}</h1>
-      </div>
-    </div>
-  </section>
-</template>
+  const route = useRoute();
+  const { storeSettings } = useAppConfig();
+  const { addToCart, isUpdatingCart } = useCart();
+  const { t } = useI18n();
+  const productId = ref("209"); // Use the provided post ID
 
-<script setup lang="ts">
+  // Fetch the composite product using the product ID
   const { data } = await useAsyncGql("getCompositeProduct", {
-    slug: "209",
+    id: "209",
   });
+  if (!data.value?.product) {
+    throw showError({
+      statusCode: 404,
+      statusMessage: t("messages.shop.productNotFound"),
+    });
+  }
 </script>
 
-<style scoped>
-  .button-active {
-    @apply bg-slate-500;
-    @apply text-white;
-  }
-</style>
+<template>
+  <div>empty</div>
+</template>
