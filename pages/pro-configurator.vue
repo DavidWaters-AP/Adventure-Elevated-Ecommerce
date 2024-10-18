@@ -1,5 +1,6 @@
 <script lang="ts" setup>
   import { StockStatusEnum, type AddToCartInput } from "#woo";
+  import { ref, reactive, computed } from "vue";
 
   const productId = ref(209); // Use your actual product ID
 
@@ -25,6 +26,7 @@
   // Initialize selected components with reactive properties
   const selectedComponents = reactive(
     product.value.components.map(() => ({
+      selectedAttributes: reactive({} as Record<string, string>),
       selectedVariationId: null as string | null,
     }))
   );
@@ -37,12 +39,61 @@
     });
   });
 
+  // Prepare attribute options with prices
+  const componentAttributes = computed(() => {
+    return componentProducts.value.map((product) => {
+      if (product && product.type === "VARIABLE") {
+        const attributes = product.attributes.nodes;
+        const variations = product.variations.nodes;
+
+        // For each attribute, map options to prices
+        const attributeOptions = attributes.map((attribute) => {
+          const optionsWithPrices = attribute.options.map((optionValue) => {
+            // Find variations that include this option
+            const matchingVariations = variations.filter((variation) =>
+              variation.attributes.nodes.some(
+                (attr) =>
+                  attr.name.toLowerCase() === attribute.name.toLowerCase() &&
+                  attr.value === optionValue
+              )
+            );
+            // Get the prices of matching variations, handling null prices
+            const prices = matchingVariations
+              .map((v) => {
+                if (v.price) {
+                  const priceStr = v.price.replace(/[^0-9.-]+/g, "");
+                  return parseFloat(priceStr);
+                }
+                return null;
+              })
+              .filter((price) => price !== null);
+
+            const minPrice = prices.length > 0 ? Math.min(...prices) : null;
+
+            return {
+              optionValue,
+              price: minPrice,
+            };
+          });
+          return {
+            attributeName: attribute.name,
+            attributeLabel: attribute.label,
+            options: optionsWithPrices,
+          };
+        });
+        return attributeOptions;
+      }
+      return [];
+    });
+  });
+
   const selectProductInput = computed(() => ({
     productId: product.value.databaseId,
     quantity: quantity.value,
     components: selectedComponents.map((component, index) => ({
       componentId: product.value.components[index].id,
       selectedVariationId: component.selectedVariationId,
+      selectedAttributes: component.selectedAttributes,
     })),
   })) as ComputedRef<AddToCartInput>;
 
@@ -64,32 +115,71 @@
     return selectedComponents.every((component, index) => {
       const componentProduct = componentProducts.value[index];
       if (componentProduct && componentProduct.type === "VARIABLE") {
-        // Ensure a variation is selected
-        return !!component.selectedVariationId;
+        // Ensure all attributes are selected
+        const requiredAttributes = componentProduct.attributes.nodes.map(
+          (attr) => attr.name.toLowerCase()
+        );
+        const selectedAttributes = Object.keys(component.selectedAttributes);
+        const allAttributesSelected = requiredAttributes.every((attr) =>
+          selectedAttributes.includes(attr)
+        );
+        return allAttributesSelected && !!component.selectedVariationId;
       }
       // For simple products, no selection is needed
       return true;
     });
   }
 
-  // When a variation is selected
-  function onVariationSelected(componentIndex: number, variationId: string) {
+  // When an attribute option is selected
+  function onAttributeOptionSelected(
+    componentIndex: number,
+    attributeName: string,
+    optionValue: string
+  ) {
     const component = selectedComponents[componentIndex];
-    component.selectedVariationId = variationId;
+    const normalizedAttributeName = attributeName.toLowerCase();
+    component.selectedAttributes[normalizedAttributeName] = optionValue;
+    component.selectedVariationId = null; // Reset variation when attributes change
+
+    // Find and set the matching variation
+    const componentProduct = componentProducts.value[componentIndex];
+    if (componentProduct && componentProduct.type === "VARIABLE") {
+      const matchingVariation = findMatchingVariation(
+        componentProduct,
+        component.selectedAttributes
+      );
+      if (matchingVariation) {
+        component.selectedVariationId = matchingVariation.databaseId;
+      } else {
+        component.selectedVariationId = null;
+      }
+    }
   }
 
-  function getVariationName(variation: any) {
-    // If variation.name is meaningful, use it
-    if (variation.name && variation.name !== "") {
-      return variation.name;
-    }
-    // Otherwise, construct a name from attributes
-    const attributeValues = variation.attributes.nodes.map(
-      (attr: any) => attr.value
-    );
-    return attributeValues.join(" / ");
+  // Find matching variation based on selected attributes
+  function findMatchingVariation(
+    product: any,
+    selectedAttributes: Record<string, string>
+  ) {
+    if (!product.variations || !product.variations.nodes) return null;
+    const selectedAttributesEntries = Object.entries(selectedAttributes);
+
+    return product.variations.nodes.find((variation: any) => {
+      const variationAttributes = variation.attributes.nodes.reduce(
+        (acc: Record<string, string>, attr: any) => {
+          const normalizedAttrName = attr.name.toLowerCase();
+          acc[normalizedAttrName] = attr.value;
+          return acc;
+        },
+        {}
+      );
+      return selectedAttributesEntries.every(
+        ([key, value]) => variationAttributes[key] === value
+      );
+    });
   }
 </script>
+
 <template>
   <main class="container relative py-6">
     <div v-if="product">
@@ -114,7 +204,10 @@
               :key="component.id"
               class="component mt-4 mb-8"
             >
-              <h3 class="text-lg font-semibold">{{ component.title }}</h3>
+              <h3 class="text-lg font-semibold">
+                {{ component.title }} -
+                {{ componentProducts[componentIndex]?.name }}
+              </h3>
               <p v-html="component.description"></p>
 
               <!-- Get the component product -->
@@ -123,26 +216,41 @@
                 <div
                   v-if="componentProducts[componentIndex].type === 'VARIABLE'"
                 >
-                  <!-- Display variations as buttons -->
-                  <div class="variations mt-4">
-                    <div class="flex flex-wrap gap-2">
+                  <!-- Display attributes and options -->
+                  <div
+                    v-for="attribute in componentAttributes[componentIndex]"
+                    :key="attribute.attributeName"
+                    class="mt-4"
+                  >
+                    <h4 class="text-md font-semibold">
+                      {{ attribute.attributeLabel }}
+                    </h4>
+                    <div class="flex flex-wrap gap-2 mt-2">
                       <button
-                        v-for="variation in componentProducts[componentIndex]
-                          .variations.nodes"
-                        :key="variation.id"
+                        v-for="option in attribute.options"
+                        :key="option.optionValue"
                         @click.prevent="
-                          onVariationSelected(componentIndex, variation.id)
+                          onAttributeOptionSelected(
+                            componentIndex,
+                            attribute.attributeName,
+                            option.optionValue
+                          )
                         "
                         :class="[
-                          'px-4 py-2 rounded',
-                          selectedComponents[componentIndex]
-                            .selectedVariationId === variation.id
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-gray-200',
+                          'px-4 py-2 rounded border',
+                          selectedComponents[componentIndex].selectedAttributes[
+                            attribute.attributeName.toLowerCase()
+                          ] === option.optionValue
+                            ? 'bg-blue-500 text-white border-blue-500'
+                            : 'bg-gray-100 border-gray-300',
                         ]"
                       >
-                        {{ getVariationName(variation) }} -
-                        {{ variation.price || "N/A" }}
+                        {{ option.optionValue }} -
+                        {{
+                          option.price !== null
+                            ? "$" + option.price.toFixed(2)
+                            : "N/A"
+                        }}
                       </button>
                     </div>
                   </div>
