@@ -26,7 +26,6 @@
   const selectedComponents = reactive(
     product.value.components.map(() => ({
       selectedVariationId: null as string | null,
-      selectedAttributes: reactive({} as Record<string, string>),
     }))
   );
 
@@ -44,7 +43,6 @@
     components: selectedComponents.map((component, index) => ({
       componentId: product.value.components[index].id,
       selectedVariationId: component.selectedVariationId,
-      selectedAttributes: component.selectedAttributes,
     })),
   })) as ComputedRef<AddToCartInput>;
 
@@ -66,61 +64,30 @@
     return selectedComponents.every((component, index) => {
       const componentProduct = componentProducts.value[index];
       if (componentProduct && componentProduct.type === "VARIABLE") {
-        // If the product is variable, ensure a variation is selected
+        // Ensure a variation is selected
         return !!component.selectedVariationId;
       }
-      // For simple products, no selection needed
+      // For simple products, no selection is needed
       return true;
     });
   }
 
-  // When an attribute is selected
-  function onAttributeSelected(
-    componentIndex: number,
-    attributeName: string,
-    value: string
-  ) {
+  // When a variation is selected
+  function onVariationSelected(componentIndex: number, variationId: string) {
     const component = selectedComponents[componentIndex];
-    const normalizedAttributeName = attributeName.toLowerCase();
-    component.selectedAttributes[normalizedAttributeName] = value;
-    component.selectedVariationId = null; // Reset variation when attributes change
-
-    // Find and set the matching variation
-    const componentProduct = componentProducts.value[componentIndex];
-    if (componentProduct && componentProduct.type === "VARIABLE") {
-      const matchingVariation = findMatchingVariation(
-        componentProduct,
-        component.selectedAttributes
-      );
-      if (matchingVariation) {
-        component.selectedVariationId = matchingVariation.databaseId;
-      } else {
-        component.selectedVariationId = null;
-      }
-    }
+    component.selectedVariationId = variationId;
   }
 
-  // Find matching variation based on selected attributes
-  function findMatchingVariation(
-    product: any,
-    selectedAttributes: Record<string, string>
-  ) {
-    if (!product.variations || !product.variations.nodes) return null;
-    const selectedAttributesEntries = Object.entries(selectedAttributes);
-
-    return product.variations.nodes.find((variation: any) => {
-      const variationAttributes = variation.attributes.nodes.reduce(
-        (acc: Record<string, string>, attr: any) => {
-          const normalizedAttrName = attr.name.toLowerCase();
-          acc[normalizedAttrName] = attr.value;
-          return acc;
-        },
-        {}
-      );
-      return selectedAttributesEntries.every(
-        ([key, value]) => variationAttributes[key] === value
-      );
-    });
+  function getVariationName(variation: any) {
+    // If variation.name is meaningful, use it
+    if (variation.name && variation.name !== "") {
+      return variation.name;
+    }
+    // Otherwise, construct a name from attributes
+    const attributeValues = variation.attributes.nodes.map(
+      (attr: any) => attr.value
+    );
+    return attributeValues.join(" / ");
   }
 </script>
 <template>
@@ -156,43 +123,28 @@
                 <div
                   v-if="componentProducts[componentIndex].type === 'VARIABLE'"
                 >
-                  <!-- Display attribute selections -->
-                  <div
-                    v-for="attribute in componentProducts[componentIndex]
-                      .attributes.nodes"
-                    :key="attribute.id"
-                    class="mt-4"
-                  >
-                    <label class="block text-sm font-medium text-gray-700">
-                      {{ attribute.label }}
-                    </label>
-                    <select
-                      v-model="
-                        selectedComponents[componentIndex].selectedAttributes[
-                          attribute.name.toLowerCase()
-                        ]
-                      "
-                      @change="
-                        onAttributeSelected(
-                          componentIndex,
-                          attribute.name,
-                          $event.target.value
-                        )
-                      "
-                      class="mt-1 block w-full border rounded-lg p-2"
-                      required
-                    >
-                      <option value="" disabled>
-                        Select {{ attribute.label }}
-                      </option>
-                      <option
-                        v-for="value in attribute.options"
-                        :key="value"
-                        :value="value"
+                  <!-- Display variations as buttons -->
+                  <div class="variations mt-4">
+                    <div class="flex flex-wrap gap-2">
+                      <button
+                        v-for="variation in componentProducts[componentIndex]
+                          .variations.nodes"
+                        :key="variation.id"
+                        @click.prevent="
+                          onVariationSelected(componentIndex, variation.id)
+                        "
+                        :class="[
+                          'px-4 py-2 rounded',
+                          selectedComponents[componentIndex]
+                            .selectedVariationId === variation.id
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-200',
+                        ]"
                       >
-                        {{ value }}
-                      </option>
-                    </select>
+                        {{ getVariationName(variation) }} -
+                        {{ variation.price || "N/A" }}
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <!-- Simple Product -->
