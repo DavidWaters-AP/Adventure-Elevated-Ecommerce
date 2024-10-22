@@ -1,8 +1,15 @@
-<script setup lang="ts">
-  import { ref, computed } from "vue";
+<script lang="ts" setup>
+  import { StockStatusEnum, ProductTypesEnum, type AddToCartInput } from "#woo";
+  import { watch, onMounted } from "vue";
 
-  const productId = ref(209);
+  const route = useRoute();
+  const { storeSettings } = useAppConfig();
+  const { arraysEqual, formatArray, checkForVariationTypeOfAny } = useHelpers();
+  const { addToCart, isUpdatingCart } = useCart();
+  const { t } = useI18n();
+  const productId = ref("212"); // Make slug reactive
 
+  // Fetch the composite product using the product ID
   const { data } = await useAsyncGql("getCompositeProduct", {
     id: productId.value,
   });
@@ -13,137 +20,329 @@
     });
   }
 
-  // Assuming you have a GraphQL query that fetches the composite product data
-  const product = ref(data);
+  const product = ref<Product>(data?.value?.product);
+  const quantity = ref<number>(1);
+  const activeVariation = ref<Variation | null>(null);
+  const variation = ref<VariationAttribute[]>([]);
+  const indexOfTypeAny = computed<number[]>(() =>
+    checkForVariationTypeOfAny(product.value)
+  );
+  const attrValues = ref();
+  const isSimpleProduct = computed<boolean>(
+    () => product.value?.type === ProductTypesEnum.SIMPLE
+  );
+  const isVariableProduct = computed<boolean>(
+    () => product.value?.type === ProductTypesEnum.VARIABLE
+  );
+  const isExternalProduct = computed<boolean>(
+    () => product.value?.type === ProductTypesEnum.EXTERNAL
+  );
 
-  // Component products
-  const componentProducts = computed(() => {
-    return product.value.components.map(
-      (component) => component.queryOptions[0]
+  const type = computed(() => activeVariation.value || product.value);
+  const selectProductInput = computed<any>(() => ({
+    productId: type.value?.databaseId,
+    quantity: quantity.value,
+    variationId: activeVariation.value?.databaseId ?? null,
+    variation: activeVariation.value ? attrValues.value : null,
+  })) as ComputedRef<AddToCartInput>;
+
+  const mergeLiveStockStatus = (payload: Product): void => {
+    product.value.stockStatus =
+      payload.stockStatus ?? product.value?.stockStatus;
+
+    payload.variations?.nodes?.forEach(
+      (variation: Variation, index: number) => {
+        if (product.value?.variations?.nodes[index]) {
+          product.value.variations.nodes[index].stockStatus =
+            variation.stockStatus;
+        }
+      }
     );
+  };
+
+  const initializeActiveVariation = () => {
+    if (isVariableProduct.value && product.value.variations.nodes.length > 0) {
+      // Find the variation that matches the default attributes
+      const defaultVariation = product.value.variations.nodes.find(
+        (variation) => {
+          const defaultAttributes =
+            product.value.defaultAttributes?.nodes || [];
+          return defaultAttributes.every((attr) =>
+            variation.attributes.nodes.some(
+              (va) => va.name === attr.name && va.value === attr.value
+            )
+          );
+        }
+      );
+
+      // Set the active variation, fallback to the first variation if no default is found
+      activeVariation.value =
+        defaultVariation || product.value.variations.nodes[0];
+
+      // Update selectProductInput to match the active variation
+      if (activeVariation.value) {
+        selectProductInput.value.variationId = activeVariation.value.databaseId;
+        selectProductInput.value.variation =
+          activeVariation.value.attributes.nodes.map((attr) => ({
+            attributeName: attr.name,
+            attributeValue: attr.value,
+          }));
+      }
+    }
+  };
+
+  /*onMounted(async () => {
+    try {
+      const { product } = await GqlGetStockStatus({ id: productId.value });
+      if (product) mergeLiveStockStatus(product as Product);
+    } catch (error: any) {
+      const errorMessage = error?.gqlErrors?.[0].message;
+      if (errorMessage) console.error(errorMessage);
+    }
+    initializeActiveVariation(); // Initialize the active variation when the component mounts
   });
 
-  // Selected variations for each component
-  const selectedVariations = ref([]);
+  watch(
+    route,
+    async (newRoute) => {
+      slug.value = newRoute.params.slug as string;
+      const { data } = await useAsyncGql("getProduct", { id: productId.value });
+      product.value = data?.value?.product;
+      activeVariation.value = null; // Reset active variation
+      variation.value = []; // Clear selected variations
+      if (product.value) {
+        initializeActiveVariation(); // Reinitialize when navigating to a new product
+      }
+    },
+    { immediate: true }
+  );*/
 
-  // Quantity
-  const quantity = ref(1);
+  const updateSelectedVariations = (variations: VariationAttribute[]): void => {
+    if (!product.value.variations) return;
 
-  // Function to handle attribute changes
-  function onAttributeChange(componentIndex, attributeName, optionValue) {
-    const component = componentProducts.value[componentIndex];
+    attrValues.value = variations.map((el) => ({
+      attributeName: el.name,
+      attributeValue: el.value,
+    }));
+    const clonedVariations = JSON.parse(JSON.stringify(variations));
+    const getActiveVariation = product.value.variations?.nodes.filter(
+      (variation: any) => {
+        if (variation.attributes) {
+          indexOfTypeAny.value.forEach(
+            (index) => (clonedVariations[index].value = "")
+          );
 
-    // Find the matching variation
-    const matchingVariation = component.variations.nodes.find((v) =>
-      v.attributes.nodes.some(
-        (a) => a.name === attributeName && a.value === optionValue
-      )
+          return arraysEqual(
+            formatArray(variation.attributes.nodes),
+            formatArray(clonedVariations)
+          );
+        }
+      }
     );
 
-    // Update selected variations
-    selectedVariations.value[componentIndex] = matchingVariation;
+    if (getActiveVariation[0]) activeVariation.value = getActiveVariation[0];
+    selectProductInput.value.variationId =
+      activeVariation.value?.databaseId ?? null;
+    selectProductInput.value.variation = activeVariation.value
+      ? attrValues.value
+      : null;
+    variation.value = variations;
+  };
 
-    // Update quantity if necessary
-    if (matchingVariation) {
-      quantity.value = matchingVariation.quantity;
-    }
-  }
+  const stockStatus = computed(() => {
+    if (isVariableProduct.value)
+      return activeVariation.value?.stockStatus || StockStatusEnum.OUT_OF_STOCK;
+    return type.value?.stockStatus || StockStatusEnum.OUT_OF_STOCK;
+  });
 
-  // Function to prepare add-to-cart data
-  function prepareAddToCartData() {
-    return {
-      productId: product.value.databaseId,
-      quantity: quantity.value,
-      components: selectedVariations.value.map((variation, index) => ({
-        componentId: product.value.components[index].id,
-        variationId: variation.databaseId,
-        attributes: variation.attributes.nodes.map((attr) => ({
-          attributeName: attr.name,
-          attributeValue: attr.value,
-        })),
-      })),
-    };
-  }
+  const disabledAddToCart = computed(() => {
+    if (isSimpleProduct.value)
+      return (
+        !type.value ||
+        stockStatus.value === StockStatusEnum.OUT_OF_STOCK ||
+        isUpdatingCart.value
+      );
+    return (
+      !type.value ||
+      stockStatus.value === StockStatusEnum.OUT_OF_STOCK ||
+      !activeVariation.value ||
+      isUpdatingCart.value
+    );
+  });
 </script>
 
 <template>
+  <p>{{ data }}</p>
   <main class="container relative py-6">
     <div v-if="product">
-      <h1 class="text-2xl font-bold mb-4">{{ product.name }}</h1>
+      <SEOHead :info="product" />
+      <Breadcrumb
+        :product
+        class="mb-6"
+        v-if="storeSettings.showBreadcrumbOnSingleProduct"
+      />
 
-      <form @submit.prevent="addToCart(prepareAddToCartData())">
-        <div
-          v-for="(component, index) in product.components"
-          :key="component.id"
-          class="mb-6 border-b pb-4"
-        >
-          <h2 class="text-xl font-semibold mb-2">{{ component.title }}</h2>
+      <div
+        class="flex flex-col gap-10 md:flex-row md:justify-between lg:gap-24"
+      >
+        <ProductImageGallery
+          v-if="product.image"
+          class="relative flex-1"
+          :main-image="product.image"
+          :gallery="product.galleryImages!"
+          :node="type"
+          :activeVariation="activeVariation || {}"
+        />
+        <NuxtImg
+          v-else
+          class="relative flex-1 skeleton"
+          src="/images/placeholder.jpg"
+          :alt="product?.name || 'Product'"
+        />
 
-          <div v-if="componentProducts[index].type === 'VARIABLE'">
-            <div
-              v-for="attribute in componentProducts[index].attributes.nodes"
-              :key="attribute.name"
-              class="mb-4"
-            >
-              <h3 class="text-lg font-semibold mb-1">{{ attribute.label }}</h3>
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-for="option in attribute.options"
-                  :key="option"
-                  @click.prevent="
-                    onAttributeChange(index, attribute.name, option)
-                  "
-                  :class="{
-                    'bg-blue-500 text-white': selectedVariations.value[
-                      index
-                    ]?.attributes.nodes.some(
-                      (a) => a.name === attribute.name && a.value === option
-                    ),
-                  }"
-                  class="px-4 py-2 rounded border hover:bg-gray-100 transition-colors"
+        <div class="lg:max-w-md xl:max-w-lg md:py-2 w-full">
+          <div class="flex justify-between mb-4">
+            <div class="flex-1">
+              <h1
+                class="flex flex-wrap items-center gap-2 mb-2 text-2xl font-sesmibold"
+              >
+                {{ type.name }}
+                <LazyWPAdminLink
+                  :link="`/wp-admin/post.php?post=${product.databaseId}&action=edit`"
+                  >Edit</LazyWPAdminLink
                 >
-                  {{ option }}
-                </button>
-              </div>
+              </h1>
+              <StarRating
+                :rating="product.averageRating || 0"
+                :count="product.reviewCount || 0"
+                v-if="storeSettings.showReviews"
+              />
+            </div>
+            <ProductPrice
+              class="text-xl"
+              :sale-price="type.salePrice"
+              :regular-price="type.regularPrice"
+            />
+          </div>
+
+          <div class="grid gap-2 my-8 text-sm empty:hidden">
+            <div v-if="!isExternalProduct" class="flex items-center gap-2">
+              <span class="text-gray-400"
+                >{{ $t("messages.shop.availability") }}:
+              </span>
+              <StockStatus :stockStatus @updated="mergeLiveStockStatus" />
+            </div>
+            <div
+              class="flex items-center gap-2"
+              v-if="storeSettings.showSKU && type.sku"
+            >
+              <span class="text-gray-400">{{ $t("messages.shop.sku") }}: </span>
+              <span>{{ type.sku || "N/A" }}</span>
             </div>
           </div>
 
-          <p
-            v-if="componentProducts[index].description"
-            v-html="componentProducts[index].description"
-            class="text-sm text-gray-600 mb-2"
-          ></p>
+          <div
+            class="mb-8 font-light prose"
+            v-html="product.shortDescription || product.description"
+          />
+
+          <hr />
+
+          <form @submit.prevent="addToCart(selectProductInput)">
+            <AttributeSelections
+              v-if="
+                isVariableProduct && product.attributes && product.variations
+              "
+              class="mt-4 mb-8"
+              :attributes="product.attributes.nodes"
+              :defaultAttributes="product.defaultAttributes"
+              :variations="product.variations.nodes"
+              @attrs-changed="updateSelectedVariations"
+            />
+            <div
+              v-if="isVariableProduct || isSimpleProduct"
+              class="fixed bottom-0 left-0 z-10 flex items-center w-full gap-4 p-4 mt-12 bg-white md:static md:bg-transparent bg-opacity-90 md:p-0"
+            >
+              <input
+                v-model="quantity"
+                type="number"
+                min="1"
+                aria-label="Quantity"
+                class="bg-white border rounded-lg flex text-left p-2.5 w-20 gap-4 items-center justify-center focus:outline-none"
+              />
+              <AddToCartButton
+                class="flex-1 w-full md:max-w-xs"
+                :disabled="disabledAddToCart"
+                :class="{ loading: isUpdatingCart }"
+              />
+            </div>
+            <a
+              v-if="isExternalProduct && product.externalUrl"
+              :href="product.externalUrl"
+              target="_blank"
+              class="rounded-lg flex font-bold bg-gray-800 text-white text-center min-w-[150px] p-2.5 gap-4 items-center justify-center focus:outline-none"
+            >
+              {{ product?.buttonText || "View product" }}
+            </a>
+          </form>
 
           <div
-            v-if="selectedVariations[index] && selectedVariations[index].price"
+            v-if="
+              storeSettings.showProductCategoriesOnSingleProduct &&
+              product.productCategories
+            "
           >
-            <p class="text-lg font-semibold mb-1">
-              Price: {{ selectedVariations[index].price }}
-            </p>
-            <p class="text-sm text-gray-600">
-              Stock: {{ selectedVariations[index].stockQuantity }} in stock
-            </p>
+            <div class="grid gap-2 my-8 text-sm">
+              <div class="flex items-center gap-2">
+                <span class="text-gray-400"
+                  >{{ $t("messages.shop.category", 2) }}:</span
+                >
+                <div class="product-categories">
+                  <NuxtLink
+                    v-for="category in product.productCategories.nodes"
+                    :key="category.slug"
+                    :to="`/product-category/${decodeURIComponent(category.slug)}`"
+                    class="hover:text-primary"
+                    :title="category.name"
+                    >{{ category.name }}<span class="comma">, </span>
+                  </NuxtLink>
+                </div>
+              </div>
+            </div>
+            <hr />
           </div>
-        </div>
 
-        <div class="flex items-center justify-between mt-6">
-          <div>
-            <label for="quantity" class="text-sm font-semibold mr-2"
-              >Quantity:</label
-            >
-            <input
-              id="quantity"
-              v-model="quantity"
-              type="number"
-              min="1"
-              class="w-20 p-2 mr-2 border rounded"
-            />
+          <div class="flex flex-wrap gap-4">
+            <WishlistButton :product />
+            <ShareButton :product />
           </div>
-          <button type="submit" class="bg-primary text-white px-4 py-2 rounded">
-            Add to Cart
-          </button>
         </div>
-      </form>
+      </div>
+      <div v-if="product.description || product.reviews" class="my-32">
+        <ProductTabs :product />
+      </div>
+      <div
+        class="my-32"
+        v-if="product.related && storeSettings.showRelatedProducts"
+      >
+        <div class="mb-4 text-xl font-semibold">
+          {{ $t("messages.shop.youMayLike") }}
+        </div>
+        <ProductRow
+          :products="product.related.nodes"
+          class="grid-cols-2 md:grid-cols-4 lg:grid-cols-5"
+        />
+      </div>
     </div>
   </main>
 </template>
+
+<style scoped>
+  .product-categories > a:last-child .comma {
+    display: none;
+  }
+
+  input[type="number"]::-webkit-inner-spin-button {
+    opacity: 1;
+  }
+</style>
