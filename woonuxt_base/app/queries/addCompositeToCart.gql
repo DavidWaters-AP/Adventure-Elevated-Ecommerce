@@ -1,0 +1,19 @@
+mutation AddCompositeToCart($input: AddCompositeToCartInput!) {
+  addCompositeToCart(input: $input) {
+    cart {
+      contents {
+        nodes {
+          key
+          product {
+            node {
+              id
+              name
+            }
+          }
+          quantity
+          total
+        }
+      }
+    }
+  }
+}
