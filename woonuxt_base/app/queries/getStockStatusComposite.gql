@@ -1,0 +1,15 @@
+query getStockStatusComposite($id: ID!) {
+  product(id: $id, idType: DATABASE_ID) {
+    ... on SimpleProduct {
+      stockStatus
+    }
+    ... on VariableProduct {
+      stockStatus
+      variations {
+        nodes {
+          stockStatus
+        }
+      }
+    }
+  }
+}

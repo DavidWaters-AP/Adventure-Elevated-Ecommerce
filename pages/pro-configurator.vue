@@ -97,9 +97,13 @@
     })),
   })) as ComputedRef<AddToCartInput>;
 
+  /*
   const stockStatus = computed(
     () => product.value.stockStatus || StockStatusEnum.OUT_OF_STOCK
   );
+  */
+
+  const stockStatus = "IN_STOCK";
 
   const disabledAddToCart = computed(() => {
     return (
