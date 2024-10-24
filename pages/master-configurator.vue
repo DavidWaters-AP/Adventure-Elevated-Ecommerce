@@ -3,11 +3,22 @@
     <div class="mx-auto container px-4 py-32">
       <div class="flex flex-row gap-12">
         <div class="w-1/2">
-          <img :src="product.product?.image.sourceUrl" alt="product image" />
+          <NuxtImg
+            class="w-full bg-white rounded-lg"
+            :src="
+              product.product?.image?.sourceUrl || '/images/placeholder.jpg'
+            "
+            alt="product image"
+          />
         </div>
         <div class="w-1/2">
           <h1 class="text-3xl font-bold mb-4">{{ product.product?.name }}</h1>
           <div class="mb-12" v-html="product.product?.description"></div>
+          <div>
+            <NuxtLink to="/pro-configurator">Pro Configurator</NuxtLink>
+            <NuxtLink to="/max-configurator">Max Configurator</NuxtLink>
+            <NuxtLink to="/master-configurator">Master Configurator</NuxtLink>
+          </div>
           <div>
             <div
               class="mb-16"
@@ -44,7 +55,10 @@
                     />
                     <NuxtImg
                       class="mb-4 w-full object-contain"
-                      :src="v.featuredImage.node.sourceUrl"
+                      :src="
+                        v?.featuredImage?.node?.sourceUrl ||
+                        '/images/placeholder.jpg'
+                      "
                       alt="product image"
                       width="50"
                       height="50"
@@ -137,7 +151,7 @@
   );
 
   const { data: product } = await useAsyncGql("getCompositeProduct", {
-    id: "209",
+    id: "212",
   });
 
   onMounted(() => {

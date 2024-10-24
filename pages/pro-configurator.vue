@@ -1,298 +1,201 @@
-<script lang="ts" setup>
-  import { StockStatusEnum, type AddToCartInput } from "#woo";
-  import { ref, reactive, computed } from "vue";
-
-  const productId = ref(209); // Use your actual product ID
-
-  const { storeSettings } = useAppConfig();
-  const { addToCart, isUpdatingCart } = useCart();
-  const { t } = useI18n();
-
-  // Fetch the composite product using the product ID
-  const { data } = await useAsyncGql("getCompositeProduct", {
-    id: productId.value,
-  });
-  if (!data.value?.product) {
-    throw showError({
-      statusCode: 404,
-      statusMessage: t("messages.shop.productNotFound"),
-    });
-  }
-
-  // Extract the composite product data
-  const product = ref(data.value.product);
-  const quantity = ref<number>(1);
-
-  // Initialize selected components with reactive properties
-  const selectedComponents = reactive(
-    product.value.components.map(() => ({
-      selectedAttributes: reactive({} as Record<string, string>),
-      selectedVariationId: null as string | null,
-    }))
-  );
-
-  // Computed property to get the component products
-  const componentProducts = computed(() => {
-    return product.value.components.map((component) => {
-      // Assume that the product is the first item in queryOptions
-      return component.queryOptions[0];
-    });
-  });
-
-  // Prepare attribute options with prices
-  const componentAttributes = computed(() => {
-    return componentProducts.value.map((product) => {
-      if (product && product.type === "VARIABLE") {
-        const attributes = product.attributes.nodes;
-        const variations = product.variations.nodes;
-
-        // For each attribute, map options to prices
-        const attributeOptions = attributes.map((attribute) => {
-          const optionsWithPrices = attribute.options.map((optionValue) => {
-            // Find variations that include this option
-            const matchingVariations = variations.filter((variation) =>
-              variation.attributes.nodes.some(
-                (attr) =>
-                  attr.name.toLowerCase() === attribute.name.toLowerCase() &&
-                  attr.value === optionValue
-              )
-            );
-            // Get the prices of matching variations, handling null prices
-            const prices = matchingVariations
-              .map((v) => {
-                if (v.price) {
-                  const priceStr = v.price.replace(/[^0-9.-]+/g, "");
-                  return parseFloat(priceStr);
-                }
-                return null;
-              })
-              .filter((price) => price !== null);
-
-            const minPrice = prices.length > 0 ? Math.min(...prices) : null;
-
-            return {
-              optionValue,
-              price: minPrice,
-            };
-          });
-          return {
-            attributeName: attribute.name,
-            attributeLabel: attribute.label,
-            options: optionsWithPrices,
-          };
-        });
-        return attributeOptions;
-      }
-      return [];
-    });
-  });
-
-  const selectProductInput = computed(() => ({
-    productId: product.value.databaseId,
-    quantity: quantity.value,
-    components: selectedComponents.map((component, index) => ({
-      componentId: product.value.components[index].id,
-      selectedVariationId: component.selectedVariationId,
-      selectedAttributes: component.selectedAttributes,
-    })),
-  })) as ComputedRef<AddToCartInput>;
-
-  /*
-  const stockStatus = computed(
-    () => product.value.stockStatus || StockStatusEnum.OUT_OF_STOCK
-  );
-  */
-
-  const stockStatus = "IN_STOCK";
-
-  const disabledAddToCart = computed(() => {
-    return (
-      !product.value ||
-      stockStatus.value === StockStatusEnum.OUT_OF_STOCK ||
-      isUpdatingCart.value ||
-      !areAllComponentsSelected()
-    );
-  });
-
-  // Function to check if all components have been selected
-  function areAllComponentsSelected() {
-    return selectedComponents.every((component, index) => {
-      const componentProduct = componentProducts.value[index];
-      if (componentProduct && componentProduct.type === "VARIABLE") {
-        // Ensure all attributes are selected
-        const requiredAttributes = componentProduct.attributes.nodes.map(
-          (attr) => attr.name.toLowerCase()
-        );
-        const selectedAttributes = Object.keys(component.selectedAttributes);
-        const allAttributesSelected = requiredAttributes.every((attr) =>
-          selectedAttributes.includes(attr)
-        );
-        return allAttributesSelected && !!component.selectedVariationId;
-      }
-      // For simple products, no selection is needed
-      return true;
-    });
-  }
-
-  // When an attribute option is selected
-  function onAttributeOptionSelected(
-    componentIndex: number,
-    attributeName: string,
-    optionValue: string
-  ) {
-    const component = selectedComponents[componentIndex];
-    const normalizedAttributeName = attributeName.toLowerCase();
-    component.selectedAttributes[normalizedAttributeName] = optionValue;
-    component.selectedVariationId = null; // Reset variation when attributes change
-
-    // Find and set the matching variation
-    const componentProduct = componentProducts.value[componentIndex];
-    if (componentProduct && componentProduct.type === "VARIABLE") {
-      const matchingVariation = findMatchingVariation(
-        componentProduct,
-        component.selectedAttributes
-      );
-      if (matchingVariation) {
-        component.selectedVariationId = matchingVariation.databaseId;
-      } else {
-        component.selectedVariationId = null;
-      }
-    }
-  }
-
-  // Find matching variation based on selected attributes
-  function findMatchingVariation(
-    product: any,
-    selectedAttributes: Record<string, string>
-  ) {
-    if (!product.variations || !product.variations.nodes) return null;
-    const selectedAttributesEntries = Object.entries(selectedAttributes);
-
-    return product.variations.nodes.find((variation: any) => {
-      const variationAttributes = variation.attributes.nodes.reduce(
-        (acc: Record<string, string>, attr: any) => {
-          const normalizedAttrName = attr.name.toLowerCase();
-          acc[normalizedAttrName] = attr.value;
-          return acc;
-        },
-        {}
-      );
-      return selectedAttributesEntries.every(
-        ([key, value]) => variationAttributes[key] === value
-      );
-    });
-  }
-</script>
-
 <template>
-  <main class="container relative py-6">
-    <div v-if="product">
-      <!-- Your existing components like SEOHead, Breadcrumb, etc. -->
-
-      <div
-        class="flex flex-col gap-10 md:flex-row md:justify-between lg:gap-24"
-      >
-        <!-- Product Image Gallery -->
-        <!-- ... -->
-
-        <!-- Product Details -->
-        <div class="lg:max-w-md xl:max-w-lg md:py-2 w-full">
-          <!-- Product Title and Price -->
-          <!-- ... -->
-
-          <!-- Product Form -->
-          <form @submit.prevent="addToCart(selectProductInput)">
-            <!-- Loop through each component -->
+  <div>
+    <div class="mx-auto container px-4 py-32">
+      <div class="flex flex-row gap-12">
+        <div class="w-1/2">
+          <NuxtImg
+            class="w-full bg-white rounded-lg"
+            :src="
+              product.product?.image?.sourceUrl || '/images/placeholder.jpg'
+            "
+            alt="product image"
+          />
+        </div>
+        <div class="w-1/2">
+          <h1 class="text-3xl font-bold mb-4">{{ product.product?.name }}</h1>
+          <div class="mb-12" v-html="product.product?.description"></div>
+          <div>
+            <NuxtLink to="/pro-configurator">Pro Configurator</NuxtLink>
+            <NuxtLink to="/max-configurator">Max Configurator</NuxtLink>
+            <NuxtLink to="/master-configurator">Master Configurator</NuxtLink>
+          </div>
+          <div>
             <div
-              v-for="(component, componentIndex) in product.components"
+              class="mb-16"
+              v-for="component in product.product?.components"
               :key="component.id"
-              class="component mt-4 mb-8"
             >
-              <h3 class="text-lg font-semibold">
-                {{ component.title }} -
-                {{ componentProducts[componentIndex]?.name }}
+              <h3 class="text-xl mb-4 font-semibold">
+                {{ component.title }}
               </h3>
-              <p v-html="component.description"></p>
-
-              <!-- Get the component product -->
-              <div v-if="componentProducts[componentIndex]">
-                <!-- Check if product is variable -->
+              <div class="flex flex-row gap-4">
                 <div
-                  v-if="componentProducts[componentIndex].type === 'VARIABLE'"
+                  v-for="v in component.queryOptions[0].variations.nodes"
+                  :key="v.id"
                 >
-                  <!-- Display attributes and options -->
-                  <div
-                    v-for="attribute in componentAttributes[componentIndex]"
-                    :key="attribute.attributeName"
-                    class="mt-4"
+                  <label
+                    :class="[
+                      'flex rounded-md border border-solid p-2 h-full w-32 flex-col items-center cursor-pointer',
+                      {
+                        'border-blue-500 bg-blue-100':
+                          selectedValues[component.id] ===
+                          v.attributes.nodes[0].value,
+                        'border-gray-200 bg-gray-100':
+                          selectedValues[component.id] !==
+                          v.attributes.nodes[0].value,
+                      },
+                    ]"
                   >
-                    <h4 class="text-md font-semibold">
-                      {{ attribute.attributeLabel }}
-                    </h4>
-                    <div class="flex flex-wrap gap-2 mt-2">
-                      <button
-                        v-for="option in attribute.options"
-                        :key="option.optionValue"
-                        @click.prevent="
-                          onAttributeOptionSelected(
-                            componentIndex,
-                            attribute.attributeName,
-                            option.optionValue
-                          )
-                        "
-                        :class="[
-                          'px-4 py-2 rounded border',
-                          selectedComponents[componentIndex].selectedAttributes[
-                            attribute.attributeName.toLowerCase()
-                          ] === option.optionValue
-                            ? 'bg-blue-500 text-white border-blue-500'
-                            : 'bg-gray-100 border-gray-300',
-                        ]"
-                      >
-                        {{ option.optionValue }} -
-                        {{
-                          option.price !== null
-                            ? "$" + option.price.toFixed(2)
-                            : "N/A"
-                        }}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <!-- Simple Product -->
-                <div v-else class="mt-4">
-                  <!-- Display any additional information for simple products if needed -->
-                  <p>This is a simple product with no options.</p>
+                    <input
+                      class="hidden"
+                      type="radio"
+                      :name="`component-${component.id}`"
+                      :value="v.attributes.nodes[0].value"
+                      v-model="selectedValues[component.id]"
+                    />
+                    <NuxtImg
+                      class="mb-4 w-full object-contain"
+                      :src="
+                        v?.featuredImage?.node?.sourceUrl ||
+                        '/images/placeholder.jpg'
+                      "
+                      alt="product image"
+                      width="50"
+                      height="50"
+                    />
+                    <span class="text-md font-semibold">
+                      {{
+                        v.attributes.nodes.map((attr) => attr.value).join(", ")
+                      }}
+                    </span>
+                    <span class="text-sm">{{ v.price }}</span>
+                  </label>
                 </div>
               </div>
+              <div class="mt-4 font-semibold">
+                You've Selected:
+                <span class="font-thin">{{
+                  selectedValues[component.id]
+                }}</span>
+              </div>
             </div>
-
-            <!-- Add to Cart Button -->
+          </div>
+          <div
+            class="fixed bottom-0 bg-opacity-60 bg-slate-900 w-full left-0 backdrop-blur-lg text-white"
+          >
             <div
-              class="fixed bottom-0 left-0 z-10 flex items-center w-full gap-4 p-4 mt-12 bg-white md:static md:bg-transparent bg-opacity-90 md:p-0"
+              class="container mx-auto py-6 px-4 flex flex-row justify-between items-center"
             >
-              <input
-                v-model="quantity"
-                type="number"
-                min="1"
-                aria-label="Quantity"
-                class="bg-white border rounded-lg flex text-left p-2.5 w-20 gap-4 items-center justify-center focus:outline-none"
-              />
-              <AddToCartButton
-                class="flex-1 w-full md:max-w-xs"
-                :disabled="disabledAddToCart"
-                :class="{ loading: isUpdatingCart }"
-              />
+              <p class="text-3xl font-thin">
+                <span class="font-semibold">Total Amount: </span
+                >{{ priceFormatter.format(configAmount) }}
+              </p>
+              <button
+                class="bg-red-400 px-12 py-4 rounded-full hover:bg-white transition-colors ease-in duration-200 hover:text-red-400"
+              >
+                Add to Cart
+              </button>
             </div>
-          </form>
-
-          <!-- Additional Components like Wishlist, Share, etc. -->
-          <!-- ... -->
+          </div>
         </div>
       </div>
-
-      <!-- Product Tabs, Related Products, etc. -->
-      <!-- ... -->
     </div>
-  </main>
+  </div>
 </template>
+
+<script setup lang="ts">
+  import { ref, onMounted, watch } from "vue";
+  import gql from "graphql-tag";
+
+  const selectedValues = ref<{ [key: number]: string }>({});
+  const configAmount = ref(0);
+  const priceFormatter = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  });
+
+  const selectedPrices = ref<string[]>([]);
+
+  watch(
+    selectedValues,
+    (newValues) => {
+      selectedPrices.value = [];
+      if (product.value?.product?.components) {
+        product.value.product.components.forEach((component) => {
+          const selectedValue = newValues[component.id];
+          if (selectedValue) {
+            const variation = component.queryOptions[0].variations.nodes.find(
+              (v) => v.attributes.nodes[0].value === selectedValue
+            );
+            if (variation) {
+              selectedPrices.value.push(
+                parseFloat(variation.price.replace(/[^0-9.-]+/g, "")).toFixed(2)
+              );
+            }
+          }
+        });
+      }
+    },
+    { deep: true }
+  );
+
+  watch(
+    selectedPrices,
+    (newPrices) => {
+      configAmount.value = newPrices.reduce((total, price) => {
+        const numericPrice = parseFloat(price.replace(/[^0-9.-]+/g, ""));
+        return total + (isNaN(numericPrice) ? 0 : numericPrice);
+      }, 0);
+    },
+    { immediate: true }
+  );
+
+  const { data: product } = await useAsyncGql("getCompositeProduct", {
+    id: "209",
+  });
+
+  onMounted(() => {
+    if (product.value?.product?.components) {
+      product.value.product.components.forEach((component) => {
+        selectedValues.value[component.id] = "";
+      });
+    }
+  });
+</script>
+
+<style scoped>
+  .cursor-pointer {
+    cursor: pointer;
+  }
+
+  .border-blue-500 {
+    border-color: #3b82f6;
+  }
+
+  .bg-blue-100 {
+    background-color: #dbeafe;
+  }
+
+  .border-gray-200 {
+    border-color: #e5e7eb;
+  }
+
+  .bg-gray-100 {
+    background-color: #f3f4f6;
+  }
+
+  .transition {
+    transition: all 0.3s ease;
+  }
+
+  .selected-transition {
+    transition: all 0.3s ease;
+  }
+</style>
+
+<style scoped>
+  .button-active {
+    @apply bg-slate-500;
+    @apply text-white;
+  }
+</style>
