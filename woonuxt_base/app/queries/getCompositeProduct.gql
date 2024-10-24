@@ -39,14 +39,13 @@ query getCompositeProduct($id: ID!) {
               id
               name
               label
-              options
             }
           }
           ... on VariableProduct {
             id
             name
-            price
-            regularPrice
+            price(format: FORMATTED)
+            regularPrice(format: FORMATTED)
             salePrice
             variations {
               nodes {
@@ -57,12 +56,17 @@ query getCompositeProduct($id: ID!) {
                     value
                   }
                 }
-                price
-                salePrice
-                regularPrice
+                price(format: FORMATTED)
+                salePrice(format: FORMATTED)
+                regularPrice(format: FORMATTED)
                 sku
                 stockQuantity
                 stockStatus
+                featuredImage {
+                  node {
+                    sourceUrl
+                  }
+                }
               }
             }
           }
